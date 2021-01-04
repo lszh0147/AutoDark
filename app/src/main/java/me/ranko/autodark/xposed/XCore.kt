@@ -84,10 +84,11 @@ class XCore : IXposedHookLoadPackage, IXposedHookZygoteInit {
          * */
         private fun prepareHook() {
             try {
+                //hook系统应用
                 if (Files.exists(Constant.BLOCK_LIST_SYSTEM_APP_CONFIG_PATH)) {
                     SystemProperties.set(Constant.SYSTEM_PROP_HOOK_SYSTEM_APPS, true.toString())
                 }
-
+                //hook输入法
                 if (Files.exists(Constant.BLOCK_LIST_INPUT_METHOD_CONFIG_PATH)) {
                     SystemProperties.set(Constant.SYSTEM_PROP_HOOK_INPUT_METHOD, true.toString())
                 }

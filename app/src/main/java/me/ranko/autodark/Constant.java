@@ -15,8 +15,9 @@ public final class Constant {
      * SystemServer can initialize block list here
      * */
     public static final String APP_DATA_DIR = "/data/user_de/0/" + BuildConfig.APPLICATION_ID;
+    public static final String APP_DATA_DIR_LIST = "/data/local/tmp";
 
-    public static final Path BLOCK_LIST_PATH = Paths.get(APP_DATA_DIR + File.separator + "block.txt");
+    public static final Path BLOCK_LIST_PATH = Paths.get(APP_DATA_DIR_LIST + File.separator + "AutoDarkBlackList.txt");
 
     public static final Path BLOCK_LIST_SYSTEM_APP_CONFIG_PATH = Paths.get( APP_DATA_DIR + File.separator + "blockSystemApp");
 

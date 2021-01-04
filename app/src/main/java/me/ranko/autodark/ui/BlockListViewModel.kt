@@ -11,12 +11,14 @@ import android.graphics.drawable.Drawable
 import android.os.SystemClock
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.Log
 import android.view.MenuItem
 import android.widget.EditText
 import androidx.annotation.MainThread
 import androidx.annotation.WorkerThread
 import androidx.databinding.ObservableInt
 import androidx.lifecycle.*
+import eu.chainfire.libsuperuser.Shell
 import kotlinx.coroutines.*
 import me.ranko.autodark.BuildConfig
 import me.ranko.autodark.Constant
@@ -27,6 +29,7 @@ import me.ranko.autodark.Receivers.ActivityUpdateReceiver.Companion.STATUS_LIST_
 import me.ranko.autodark.Utils.FileUtil
 import me.ranko.autodark.ui.BlockListAdapter.Companion.EMPTY_APP_LIST
 import timber.log.Timber
+import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -242,7 +245,32 @@ class BlockListViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             val succeed: Boolean = async(Dispatchers.IO) {
                 try {
-                    FileUtil.crateIfNotExists(BLOCK_LIST_PATH, FileUtil.PERMISSION_764)
+//                    FileUtil.crateIfNotExists(BLOCK_LIST_PATH, FileUtil.PERMISSION_764)
+                    if (!Shell.SU.available()) {
+                        Log.e("SettingsXposed","no Root")
+                        return@async false
+                    }
+                    val list:File = File("/data/local/tmp/AutoDarkBlackList.txt")
+                    if (! list.exists()) {
+                        Shell.SU.run("touch /data/local/tmp/AutoDarkBlackList.txt")
+                        Shell.SU.run("chmod 777 /data/local/tmp/AutoDarkBlackList.txt")
+                    }
+
+                    // 文件依然还不存在
+                    if (! list.exists()) {
+                        Log.e("SettingsXposed","save error: /data/local/tmp/appenv.xposed.json not exist")
+                        return@async false
+                    }
+
+                    // 文件没有写的权限
+                    if (!list.canWrite()) {
+                        Shell.SU.run("chmod 777 /data/local/tmp/AutoDarkBlackList.txt")
+                    }
+                    // 文件依然没有写的权限
+                    if (!list.canWrite()) {
+                        Log.e("SettingsXposed","save error: /data/local/tmp/appenv.xposed.json can not write")
+                        return@async false
+                    }
                     Files.write(BLOCK_LIST_PATH, mBlockSet)
                     return@async true
                 } catch (e: Exception) {

@@ -20,6 +20,7 @@ import eu.chainfire.libsuperuser.Shell
 import me.ranko.autodark.R
 import me.ranko.autodark.Utils.ViewUtil
 import me.ranko.autodark.databinding.MainActivityBinding
+import java.io.File
 
 class MainActivity : BaseListActivity(), FragmentManager.OnBackStackChangedListener {
     private lateinit var viewModel: MainViewModel
@@ -39,7 +40,7 @@ class MainActivity : BaseListActivity(), FragmentManager.OnBackStackChangedListe
         binding = DataBindingUtil.setContentView(this, R.layout.main_activity)
         binding.lifecycleOwner = this
         viewModel = ViewModelProvider(this, MainViewModel.Companion.Factory(application))
-                .get(MainViewModel::class.java)
+            .get(MainViewModel::class.java)
         binding.viewModel = viewModel
 
         viewModel.summaryText.addOnPropertyChangedCallback(summaryTextListener)
@@ -52,7 +53,7 @@ class MainActivity : BaseListActivity(), FragmentManager.OnBackStackChangedListe
 
         if (ViewUtil.isLandscape(this)) {
             val collapsingToolbar =
-                    binding.appbar.findViewById<CollapsingToolbarLayout>(R.id.collapsingToolbar)!!
+                binding.appbar.findViewById<CollapsingToolbarLayout>(R.id.collapsingToolbar)!!
             val transparent = ColorStateList.valueOf(getColor(android.R.color.transparent))
             collapsingToolbar.setExpandedTitleTextColor(transparent)
             window.clearFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
@@ -66,8 +67,33 @@ class MainActivity : BaseListActivity(), FragmentManager.OnBackStackChangedListe
             transaction.commit()
         }
         if (!Shell.SU.available()) {
-            Log.e("SettingsXposed","no Root")
+            Log.e("SettingsXposed", "no Root")
         }
+        if (Shell.SU.available()) {
+            val list: File = File("/data/local/tmp/AutoDarkBlackList.txt")
+            if (!list.exists()) {
+                Shell.SU.run("touch /data/local/tmp/AutoDarkBlackList.txt")
+                Shell.SU.run("chmod 777 /data/local/tmp/AutoDarkBlackList.txt")
+            }
+
+            // 文件依然还不存在
+            if (!list.exists()) {
+                Log.e("SettingsXposed", "save error: /data/local/tmp/appenv.xposed.json not exist")
+            }
+
+            // 文件没有写的权限
+            if (!list.canWrite()) {
+                Shell.SU.run("chmod 777 /data/local/tmp/AutoDarkBlackList.txt")
+            }
+            // 文件依然没有写的权限
+            if (!list.canWrite()) {
+                Log.e(
+                    "SettingsXposed",
+                    "save error: /data/local/tmp/appenv.xposed.json can not write"
+                )
+            }
+        }
+
     }
 
     override fun onResumeFragments() {
@@ -85,8 +111,8 @@ class MainActivity : BaseListActivity(), FragmentManager.OnBackStackChangedListe
 
     private fun showSummary(summary: MainViewModel.Companion.Summary) {
         Snackbar.make(binding.coordinatorRoot, summary.message, Snackbar.LENGTH_LONG)
-                .setAction(summary.actionStr, summary.action)
-                .show()
+            .setAction(summary.actionStr, summary.action)
+            .show()
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -99,7 +125,8 @@ class MainActivity : BaseListActivity(), FragmentManager.OnBackStackChangedListe
     }
 
     override fun onBackStackChanged() {
-        val frag = supportFragmentManager.findFragmentById(R.id.container) as PreferenceFragmentCompat
+        val frag =
+            supportFragmentManager.findFragmentById(R.id.container) as PreferenceFragmentCompat
         frag.listView.apply {
             setPadding(paddingLeft, paddingTop, paddingRight, getNavBarHeight())
             if (clipToPadding) clipToPadding = false
