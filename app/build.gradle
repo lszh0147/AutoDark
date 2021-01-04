@@ -93,4 +93,6 @@ dependencies {
     // Xposed Framework API dependencies
     compileOnly "de.robv.android.xposed:api:$ver_xposed"
     compileOnly "de.robv.android.xposed:api:$ver_xposed:sources"
+
+    implementation 'eu.chainfire:libsuperuser:1.0.0.201704021214'
 }

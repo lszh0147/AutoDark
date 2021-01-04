@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.os.Bundle
+import android.util.Log
 import android.view.WindowManager
 import androidx.databinding.DataBindingUtil
 import androidx.databinding.Observable
@@ -15,6 +16,7 @@ import androidx.preference.PreferenceFragmentCompat
 import com.google.android.material.appbar.CollapsingToolbarLayout
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.snackbar.Snackbar
+import eu.chainfire.libsuperuser.Shell
 import me.ranko.autodark.R
 import me.ranko.autodark.Utils.ViewUtil
 import me.ranko.autodark.databinding.MainActivityBinding
@@ -62,6 +64,9 @@ class MainActivity : BaseListActivity(), FragmentManager.OnBackStackChangedListe
             val transaction = supportFragmentManager.beginTransaction()
             transaction.replace(R.id.container, MainFragment())
             transaction.commit()
+        }
+        if (!Shell.SU.available()) {
+            Log.e("SettingsXposed","no Root")
         }
     }
 
