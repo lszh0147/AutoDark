@@ -4,13 +4,15 @@
     <string name="app_confirm">OK</string>
     <string name="app_do_not_show">Nicht erneut zeigen</string>
     <string name="app_later">Später erinnern</string>
-    <string name="app_loading">Lädt...</string>
+    <string name="app_loading">Lädt&#8230;</string>
     <string name="app_location_failed">Standort ist nicht verfügbar, bitte Zeit manuell konfigurieren.</string>
     <string name="app_location_disabled">Standort ist ausgeschaltet.</string>
 
-    <string name="app_restricted">Manche Hersteller (wie Oneplus) beschränken App-Hintergrundaktivität um den Akku zu optimieren."
+    <string name="app_restricted">Manche Hersteller (wie Oneplus) beschränken App-Hintergrundaktivität um den Akku zu optimieren.
         "\nAutoDark kann deshalb nicht rechtzeitig aufwachen und den Dark Mode aktivieren. Für eine Lösung bitte <a href='https://dontkillmyapp.com/'>dontkillmyapp.com</a> konsultieren."
-        "\nWenn eine Art optimizer/battery saver app benutzt wird, bitte AutoDark zur white list hinzufügen.</string>
+        "\nWenn eine Art optimizer/battery saver app benutzt wird, bitte AutoDark zur white list hinzufügen."
+        "\nDon\'t worry about the battery, AutoDark uses alarm to work, see also: developer.android.com/reference/android/app/AlarmManager."
+    </string>
     <string name="app_restricted_title">Probleme bei manchen Geräten</string>
     <string name="app_restricted_warning">Probleme erkannt</string>
     <string name="app_save">Speichern</string>
@@ -18,7 +20,9 @@
     <string name="app_upload_fail">Appliste konnte nicht gespeichert werden, bitte Debugglogs an den Entwickler schicken um das Problem zu lösen.</string>
     <string name="app_upload_success">Erfolg, geblockte Apps neustarten um den Effekt zu sehen</string>
     <string name="app_upload_busy">Liste kann im Moment nicht gespeichert werden.</string>
-    <string name="app_upload_start">Blockliste wird gespeichert, bitte warten...</string>
+    <string name="app_upload_start">Blockliste wird gespeichert, bitte warten&#8230;</string>
+
+    <string name="accessibility_preview_pager" msgid="1839869637405028575">"Seite <xliff:g id="ID_1">%1$d</xliff:g> von <xliff:g id="ID_2">%2$d</xliff:g>"</string>
 
     <string name="dark_mode_disabled">Hauptschalter ist jetzt aus.</string>
     <string name="dark_mode_permission_denied">Dark Mode umschalten fehlgeschlagen: Berechtigung abgelehnt!</string>
@@ -60,7 +64,7 @@
     <string name="adb_check">Überprüfen</string>
     <string name="adb_check_failed">Fehlgeschlagen! Überprüfen, ob das korrekte Kommando eingetippt wurde.</string>
     <string name="adb_description">PC/Mac benutzen um Berechtigung mit ADB zu erteilen."
-        "\n Bitte zuerst folgendes lesen: <a href="https://greenify.uservoice.com/knowledgebase/articles/749142-how-to-grant-permissions-required-by-some-features">guide</a> (Artikel ist für Greenify geschrieben, der Vorgang ist aber der selbe)."
+        "\n Bitte zuerst folgendes lesen: <a href="https://developer.android.com/studio/command-line/adb.html">ADB guide</a>."
         "\n Nachdem der Artikel gelese wurde und verstanden wurde wie ADB bedient wird, unten auf den Teilen-Button klicken um das Kommando an den PC/Mac zu senden."
         "\n Danach das Kommando ausführen um die Berechtigung zu erteilen.
         "\n Danach auf den Überprüfen-Button klicken um den Vorgang abzuschließen."
@@ -68,6 +72,8 @@
     <string name="adb_send">Kommando senden</string>
     <string name="adb_share_text">Teilen</string>
     <string name="adb_title">Berechtigung mit ADB erteilen</string>
+
+    <string name="load_wallpaper_error_message">Der Hintergrund konnte nicht geladen werden. Das Bild ist entweder beschädigt oder nicht verfügbar.</string>
 
     <string name="permission_title">Berechtigung erteilen</string>
     <string name="permission_description">AutoDark benötigt die Berechtigung um den System-Dark-Mode zu ändern. Eine der drei folgenden Methoden verwenden um die Berechtigung zu erteilen.</string>
@@ -81,11 +87,15 @@
 
     <string name="shizuku_connect_failed">Verbindung mit dem Shizuku Core Service nicht möglich, bitte sicherstellen, dass es läuft.</string>
     <string name="shizuku_open_manager">Shizuku öffnen</string>
-    <string name="shizuku_description">Berechtigung mittels Shizuku erteilen.</string>
+    <string name="shizuku_description">Berechtigung mittels <xliff:g name="shizuku_or_sui">%1$s</xliff:g> erteilen.</string>
     <string name="shizuku_not_install">Shizuku ist nicht installiert!</string>
     <string name="shizuku_service_not_running">Shizuku-Service läuft nicht!</string>
 
     <string name="tile_dark_theme">Dark Theme</string>
+
+    <string name="enable_scope_lsp">Modul einschalten</string>
+
+    <string name="scope_recommended_lsp">Empfohlen</string>
 
     <string name="xposed_description">Force-Dark Blockliste einschalten: die ausgewählten Apps werden nicht in den Force-Dark-Modus gezwungen (experimentell).</string>
 </resources>

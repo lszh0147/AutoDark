@@ -1,5 +1,6 @@
 package me.ranko.autodark.ui
 
+import android.annotation.SuppressLint
 import android.app.Application
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -7,27 +8,35 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
-import android.graphics.drawable.Drawable
-import android.os.SystemClock
+import android.os.UserManager
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.ArrayMap
 import android.util.Log
 import android.view.MenuItem
+import android.view.View
 import android.widget.EditText
-import androidx.annotation.MainThread
-import androidx.annotation.WorkerThread
-import androidx.databinding.ObservableInt
+import androidx.annotation.StringRes
+import androidx.databinding.ObservableField
+import androidx.fragment.app.DialogFragment
 import androidx.lifecycle.*
+import androidx.preference.PreferenceManager
 import eu.chainfire.libsuperuser.Shell
 import kotlinx.coroutines.*
-import me.ranko.autodark.BuildConfig
 import me.ranko.autodark.Constant
-import me.ranko.autodark.Constant.*
-import me.ranko.autodark.Receivers.ActivityUpdateReceiver
-import me.ranko.autodark.Receivers.ActivityUpdateReceiver.Companion.STATUS_LIST_LOAD_START
-import me.ranko.autodark.Receivers.ActivityUpdateReceiver.Companion.STATUS_LIST_LOAD_SUCCEED
+import me.ranko.autodark.Constant.BLOCK_LIST_PATH
+import me.ranko.autodark.Constant.PERMISSION_SEND_DARK_BROADCAST
+import me.ranko.autodark.R
 import me.ranko.autodark.Utils.FileUtil
-import me.ranko.autodark.ui.BlockListAdapter.Companion.EMPTY_APP_LIST
+import me.ranko.autodark.core.LoadStatus
+import me.ranko.autodark.model.UserApplicationInfo
+import me.ranko.autodark.receivers.BlockListReceiver
+import me.ranko.autodark.receivers.BlockListReceiver.Companion.ACTION_SWITCH_INPUT_METHOD_RESULT
+import me.ranko.autodark.receivers.BlockListReceiver.Companion.ACTION_UPDATE_PROGRESS
+import me.ranko.autodark.receivers.BlockListReceiver.Companion.EXTRA_KEY_LIST_PROGRESS
+import me.ranko.autodark.receivers.BlockListReceiver.Companion.EXTRA_KEY_SWITCH_RESULT
+import me.ranko.autodark.receivers.InputMethodReceiver
+import me.ranko.autodark.ui.MainViewModel.Companion.Summary
 import timber.log.Timber
 import java.io.File
 import java.io.IOException
@@ -35,15 +44,21 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
+import java.util.*
 import java.util.concurrent.atomic.AtomicReference
-import java.util.function.Consumer
+import java.util.regex.Pattern
 import java.util.stream.Collectors
+import kotlin.collections.ArrayList
+import kotlin.collections.HashSet
 
-class BlockListViewModel(application: Application) : AndroidViewModel(application) {
+class BlockListViewModel(application: Application) : AndroidViewModel(application), BlockListAdapter.AppSelectListener {
 
     companion object {
 
-        private const val MAX_UPLOAD_TIME_MILLIS = 9000L
+        private const val MAX_UPLOAD_TIME_MILLIS = 5000L
+
+        private const val KEY_SHOW_SYSTEM_APP = "show_sys"
+        private const val KEY_BLOCKED_FIRST = "blocked_first"
 
         class Factory(private val application: Application) : ViewModelProvider.Factory {
             override fun <T : ViewModel?> create(modelClass: Class<T>): T {
@@ -54,286 +69,411 @@ class BlockListViewModel(application: Application) : AndroidViewModel(applicatio
                 throw IllegalArgumentException("Unable to construct viewModel")
             }
         }
+    }
 
-        @JvmStatic
-        fun isAppendChars(old: CharSequence, new: CharSequence): Boolean {
-            if (old.isEmpty() || old.length >= new.length) return false
-            for ((index, sChar) in old.withIndex()) {
-                if (new[index] != sChar) return false
-            }
-            return true
+    private inner class SearchHelper(owner: LifecycleOwner, private val edit: EditText) : TextWatcher,
+            DefaultLifecycleObserver, View.OnFocusChangeListener {
+
+        private var originList: List<ApplicationInfo> = emptyList()
+        private var appendSearch = false
+
+        init {
+            owner.lifecycle.addObserver(this)
+            edit.onFocusChangeListener = this
+            edit.addTextChangedListener(this)
         }
 
-        @WorkerThread
-        private fun saveFlagAsFile(flagPath: Path, flag: Boolean): Boolean {
-            return try {
-                if (flag) {
-                    FileUtil.crateIfNotExists(flagPath, FileUtil.PERMISSION_764)
-                } else {
-                    Files.deleteIfExists(flagPath)
-                }
-                true
-            } catch (e: IOException) {
-                Timber.d(e)
-                false
-            }
+        override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) {
+            appendSearch = count != 0 && after > count && start == 0
         }
 
-        class SearchHelper(private val viewModel: BlockListViewModel) : TextWatcher,
-            DefaultLifecycleObserver {
-            private var _mAppList: MutableLiveData<List<ApplicationInfo>> = viewModel._mAppList
-            private var list: List<ApplicationInfo> = EMPTY_APP_LIST
-            private var mEdit: EditText? = null
-            private var lastInput: String = ""
+        override fun onTextChanged(str: CharSequence, start: Int, before: Int, count: Int) {
+            if (!edit.hasFocus()) return
 
-            override fun onTextChanged(str: CharSequence, start: Int, before: Int, count: Int) {
-                val input = str.toString()
-                if (lastInput == input) return
-                lastInput = input
-
-                if (input.isEmpty()) {
-                    _mAppList.value = EMPTY_APP_LIST
-                } else {
-                    val isAppend = isAppendChars(lastInput, input)
-                    val result = ArrayList<ApplicationInfo>()
-                    // iterate old list if isAppendInput
-                    val appList = if (isAppend) _mAppList.value!! else list
-                    for (app in appList) {
-                        if (app.packageName.contains(str, true) || viewModel.getAppName(app).contains(str, true)) {
-                            result.add(app)
-                        }
+            if (str.isEmpty()) {
+                _mAppList.value = emptyList()
+            } else {
+                val result = LinkedList<ApplicationInfo>()
+                // iterate old list if isAppendInput
+                val appList = if (appendSearch) _mAppList.value!! else originList
+                for (app in appList) {
+                    if (app.packageName.contains(str, true) || getAppName(app).contains(str, true)) {
+                        result.add(app)
                     }
-
-                    _mAppList.value = result
                 }
-            }
 
-            override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) {
+                _mAppList.value = ArrayList(result)
             }
+        }
 
-            override fun afterTextChanged(s: Editable?) {
-            }
+        override fun onDestroy(owner: LifecycleOwner) {
+            edit.onFocusChangeListener = null
+            edit.removeTextChangedListener(this)
+            originList = emptyList()
+            mSearchHelper = null
+        }
 
-            override fun onResume(owner: LifecycleOwner) {
-                mEdit = (owner as BlockListActivity).getSearchEditText().also {
-                    it.addTextChangedListener(this)
-                    it.onFocusChangeListener = owner
-                }
+        override fun onFocusChange(v: View, hasFocus: Boolean) {
+            _isSearching.value = hasFocus
+            if (hasFocus) {
+                originList = _mAppList.value!!
+                _mAppList.value = emptyList()
+            } else {
+                edit.text.clear()
+                _mAppList.value = originList
             }
+        }
 
-            override fun onPause(owner: LifecycleOwner) {
-                mEdit?.onFocusChangeListener = null
-                mEdit?.removeTextChangedListener(this)
-                mEdit = null
-            }
-
-            fun startSearch() {
-                if (lastInput.isEmpty()) {
-                    list = _mAppList.value!!
-                    _mAppList.value = EMPTY_APP_LIST
-                }
-            }
-
-            fun stopSearch() {
-                lastInput = ""
-                mEdit?.clearFocus()
-                mEdit?.text?.clear()
-                _mAppList.value = list
-            }
+        override fun afterTextChanged(s: Editable?) {
+            // no-op
         }
     }
 
     private val mContext = application
-    private var mPackageManager: PackageManager = application.packageManager
+
+    private val sp = PreferenceManager.getDefaultSharedPreferences(mContext)
+
+    private val mPackageManager by lazy (LazyThreadSafetyMode.NONE) { mContext.packageManager }
 
     private val mBlockSet = HashSet<String>()
 
     private var timer: Instant = Instant.now()
+
     private val uploadTimeOutWatcher = AtomicReference<Job?>()
 
-    val uploadStatus = ObservableInt()
+    private val _uploadStatus = MutableLiveData<@LoadStatus Int>()
+    val uploadStatus: LiveData<Int>
+        get() = _uploadStatus
 
-    private val _isRefreshing = MutableLiveData(false)
+    val updateMessage =  ObservableField<String>()
+
+    /**
+     * Indicates a refreshing job is running, UI should show a loading progress
+     * and hide all the buttons.
+     *
+     * @see refreshList
+     * */
+    private val _isRefreshing = MutableLiveData<Boolean>()
     val isRefreshing: LiveData<Boolean>
         get() = _isRefreshing
 
-    private val _mAppList = MutableLiveData<List<ApplicationInfo>>(EMPTY_APP_LIST)
+    private var _isSearching = MutableLiveData<Boolean>()
+    val isSearching: LiveData<Boolean>
+        get() = _isSearching
+
+    private val _mAppList = MutableLiveData<List<ApplicationInfo>>()
     val mAppList: LiveData<List<ApplicationInfo>>
         get() = _mAppList
 
-    val mSearchHelper by lazy(LazyThreadSafetyMode.NONE) {
-        SearchHelper(this)
-    }
+    private var _isEditing = MutableLiveData(false)
+    val isEditing: LiveData<Boolean>
+        get() = _isEditing
+
+    private val _mEditList = MutableLiveData<List<String>>()
+    val mEditList: LiveData<List<String>>
+        get() = _mEditList
+
+    private var mSearchHelper: SearchHelper? = null
+
+    val dialog = ObservableField<DialogFragment?>()
+    private var edXposedDialogShowed = false
+
+    val message =  ObservableField<Summary?>()
 
     private val updateStatusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent) {
-            if (intent.action == ActivityUpdateReceiver.ACTION_RELOAD_RESULT) {
-                val response = intent.getIntExtra(ActivityUpdateReceiver.EXTRA_KEY_LIST_RESULT, -1)
-                onNewResponse(response)
-            } else {
-                throw RuntimeException("Wtf action: " + intent.action)
+            Timber.i("onReceive: Response is: %s", intent.action)
+            when (intent.action) {
+                ACTION_UPDATE_PROGRESS -> onUpdateListResponse(intent)
+
+                ACTION_SWITCH_INPUT_METHOD_RESULT -> onImeSwitchResponse(intent)
             }
         }
     }
 
     init {
-        refreshList()
-        mContext.registerReceiver(
-                updateStatusReceiver,
-                IntentFilter(ActivityUpdateReceiver.ACTION_RELOAD_RESULT),
-                PERMISSION_DARK_BROADCAST,
-                null
-        )
+        val filter = IntentFilter(ACTION_UPDATE_PROGRESS)
+        filter.addAction(ACTION_SWITCH_INPUT_METHOD_RESULT)
+        mContext.registerReceiver(updateStatusReceiver, filter, PERMISSION_SEND_DARK_BROADCAST, null)
     }
-
-    fun attachViewModel() {
-        // show big progressBar on first init
-        if (!isUploading() && _isRefreshing.value == true) {
-            uploadStatus.set(JOB_STATUS_PENDING)
-        }
-    }
-
-    /**
-     * drawable cached by system anyway
-     * */
-    fun getAppIcon(app: ApplicationInfo): Drawable = mPackageManager.getApplicationIcon(app)
 
     fun getAppName(app: ApplicationInfo): String = app.loadLabel(mPackageManager).toString()
 
-    fun refreshList() {
-        if (isRefreshing.value == true) return
+    fun attachSearchHelper(owner: LifecycleOwner, editText: EditText) {
+        mSearchHelper = SearchHelper(owner, editText)
 
-        viewModelScope.launch {
-            _isRefreshing.value = true
-            mBlockSet.clear()
-            val list = async(Dispatchers.IO) {
-                FileUtil.readList(BLOCK_LIST_PATH)?.let { mBlockSet.addAll(it) }
-                delay(1000L)
-                val hookSysApp = Files.exists(Constant.BLOCK_LIST_SYSTEM_APP_CONFIG_PATH)
-                return@async mPackageManager.getInstalledApplications(PackageManager.GET_META_DATA)
-                        .stream()
-                        .filter { hookSysApp || ApplicationInfo.FLAG_SYSTEM.and(it.flags) != ApplicationInfo.FLAG_SYSTEM }
-                        .sorted { o1, o2 -> getAppName(o1).compareTo(getAppName(o2)) }
-                        .collect(Collectors.toList())
-                        .apply { forEach { getAppIcon(it) } }
-            }.await()
-            _mAppList.value = list
-            uploadStatus.set(-1)
+        if (edXposedDialogShowed.not() && ActivationScopeDialog.shouldShowEdXposedDialog(mPackageManager, sp)) {
+            dialog.set(ActivationScopeDialog.newInstance(Files.exists(Constant.BLOCK_LIST_INPUT_METHOD_CONFIG_PATH)))
+        }
+        // only check once
+        edXposedDialogShowed = true
+    }
+
+    @Suppress("UNCHECKED_CAST", "QueryPermissionsNeeded")
+    suspend fun getInstalledApps(): Collection<ApplicationInfo> = withContext(Dispatchers.IO) {
+        val myApps = mPackageManager.getInstalledApplications(PackageManager.GET_META_DATA)
+        if (!UserManager.supportsMultipleUsers()) {
+            Timber.i("No multi-user support")
+            return@withContext myApps
+        }
+
+        val appMap = ArrayMap<String, ApplicationInfo>()
+        myApps.forEach { app -> appMap[app.packageName] = app }
+
+        // avoid request Manifest.permission.MANAGE_USERS permission
+        // use pattern to get user id
+        val findInt = Pattern.compile("\\D+")
+        try {
+            val userManager = mContext.getSystemService(Context.USER_SERVICE) as UserManager
+            val pkgMethod = mPackageManager::class.java.getMethod(
+                "getInstalledApplicationsAsUser",
+                Int::class.javaPrimitiveType, // flags
+                Int::class.javaPrimitiveType // userId
+            )
+
+            for (user in userManager.userProfiles) {
+                val uid = findInt.matcher(user.toString()).replaceAll("").toInt()
+                if (uid <= android.os.Process.ROOT_UID) continue
+
+                for (app in pkgMethod.invoke(mPackageManager, PackageManager.GET_META_DATA, uid) as List<ApplicationInfo>) {
+                    ensureActive()
+                    if (!appMap.contains(app.packageName)) {
+                        appMap[app.packageName] = UserApplicationInfo(app, user, uid)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Timber.e(e)
+        }
+        return@withContext appMap.values
+    }
+
+    @SuppressLint("QueryPermissionsNeeded")
+    fun refreshList(clearCurrent: Boolean = true) {
+        if (isRefreshAvailable().not()) return
+
+        _isRefreshing.value = true
+        timer = Instant.now()
+        viewModelScope.launch(Dispatchers.Main) {
+            withContext(Dispatchers.IO) {
+                if (clearCurrent) {
+                    if (mBlockSet.isNotEmpty()) mBlockSet.clear()
+                    FileUtil.readList(BLOCK_LIST_PATH)?.let { mBlockSet.addAll(it) }
+                }
+                if (_isEditing.value == true) {
+                    _mEditList.postValue(loadEditAppList())
+                } else {
+                    _mAppList.postValue(loadAppList())
+                }
+            }
             _isRefreshing.value = false
         }
     }
 
-    fun isBlocked(app: String): Boolean = mBlockSet.contains(app)
+    private suspend fun loadAppList(): List<ApplicationInfo> {
+        val hookSysApp = shouldShowSystemApp()
+        val blockFirst = isBlockedFirst()
 
-    fun onAppSelected(app: ApplicationInfo): Boolean {
-        val pkg = app.packageName
-        return if (mBlockSet.contains(pkg)) {
-            mBlockSet.remove(pkg)
+        val resultMap: Map<Boolean, List<ApplicationInfo>> = getInstalledApps()
+                .stream()
+                .filter { app -> hookSysApp || ApplicationInfo.FLAG_SYSTEM.and(app.flags) != ApplicationInfo.FLAG_SYSTEM }
+                .sorted { o1, o2 -> getAppName(o1).compareTo(getAppName(o2)) }
+                .collect(Collectors.partitioningBy { app -> blockFirst && isAppBlocked(app.packageName) })
+
+        val appList = resultMap[false]!!
+
+        return if (blockFirst) {
+            val blockList = resultMap[true]!!
+            val blockFirstList = ArrayList<ApplicationInfo>(blockList.size + appList.size)
+            blockFirstList.addAll(blockList)
+            blockFirstList.addAll(appList)
+            blockFirstList
+        } else {
+            appList
+        }
+    }
+
+    private fun loadEditAppList(): List<String> = mBlockSet.sorted().toMutableList()
+
+    fun onEditMode() {
+        _isEditing.value = _isEditing.value != true
+        refreshList(false)
+    }
+
+    fun isEditing(): Boolean = _isEditing.value == true
+
+    fun isRefreshAvailable(): Boolean {
+        return _isRefreshing.value != true && isUploading().not() && _uploadStatus.value != LoadStatus.FAILED
+    }
+
+    fun isBlockedFirst(): Boolean = sp.getBoolean(KEY_BLOCKED_FIRST, true)
+
+    fun shouldShowSystemApp(): Boolean = sp.getBoolean(KEY_SHOW_SYSTEM_APP, false)
+
+    override fun onAppBlockStateChanged(packageName: String): Boolean {
+        return if (mBlockSet.contains(packageName)) {
+            mBlockSet.remove(packageName)
+            if (isEditing()) {
+                _mEditList.value = (_mEditList.value as ArrayList).apply { remove(packageName) }
+            }
             false
         } else {
-            mBlockSet.add(pkg)
+            mBlockSet.add(packageName)
+            if (isEditing()) _mEditList.value = loadEditAppList()
             true
         }
     }
 
-    @MainThread
-    fun requestUploadList(): Boolean {
-        if (isUploading()) return false
-        timer = Instant.now()
+    override fun isAppBlocked(packageName: String): Boolean = mBlockSet.contains(packageName)
 
-        uploadStatus.set(JOB_STATUS_PENDING)
-        viewModelScope.launch {
-            val succeed: Boolean = async(Dispatchers.IO) {
-                try {
-//                    FileUtil.crateIfNotExists(BLOCK_LIST_PATH, FileUtil.PERMISSION_764)
-                    if (!Shell.SU.available()) {
-                        Log.e("SettingsXposed","no Root")
-                        return@async false
-                    }
-                    val list:File = File("/data/local/tmp/AutoDarkBlackList.txt")
-                    if (! list.exists()) {
-                        Shell.SU.run("touch /data/local/tmp/AutoDarkBlackList.txt")
-                        Shell.SU.run("chmod 777 /data/local/tmp/AutoDarkBlackList.txt")
-                    }
+    override fun onEditItemClicked(packageName: String) {
+        dialog.set(BlockListEditDialog.newInstance(packageName))
+    }
 
-                    // 文件依然还不存在
-                    if (! list.exists()) {
-                        Log.e("SettingsXposed","save error: /data/local/tmp/appenv.xposed.json not exist")
-                        return@async false
-                    }
+    fun onFabClicked(@Suppress("UNUSED_PARAMETER")v: View) {
+        if (_isEditing.value == true) {
+            dialog.set(BlockListEditDialog.newInstance(null))
+        } else {
+            requestUploadList()
+        }
+    }
 
-                    // 文件没有写的权限
-                    if (!list.canWrite()) {
-                        Shell.SU.run("chmod 777 /data/local/tmp/AutoDarkBlackList.txt")
-                    }
-                    // 文件依然没有写的权限
-                    if (!list.canWrite()) {
-                        Log.e("SettingsXposed","save error: /data/local/tmp/appenv.xposed.json can not write")
-                        return@async false
-                    }
-                    Files.write(BLOCK_LIST_PATH, mBlockSet)
-                    return@async true
-                } catch (e: Exception) {
-                    Timber.w(e, "Failed to write block list")
+    private fun requestUploadList() {
+        if (isUploading()) {
+            message.set(newSummary(R.string.app_upload_busy))
+            return
+        }
+
+        startUpload("onRequestUploadList: Upload time out!")
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                if (!Shell.SU.available()) {
+                    Log.e("SettingsXposed","no Root")
                     return@async false
                 }
-            }.await()
-            if (succeed) {
-                ActivityUpdateReceiver.sendNewList(mContext, ArrayList(mBlockSet))
-                uploadTimeOutWatcher.set(launch {
-                    delay(MAX_UPLOAD_TIME_MILLIS)
+                val list:File = File("/data/local/tmp/AutoDarkBlackList.txt")
+                if (! list.exists()) {
+                    Shell.SU.run("touch /data/local/tmp/AutoDarkBlackList.txt")
+                    Shell.SU.run("chmod 777 /data/local/tmp/AutoDarkBlackList.txt")
+                }
 
-                    if (uploadTimeOutWatcher.getAndSet(null) != null) {
-                        // system server no response, wtf happened
-                        Timber.e("onRequestUploadList: Upload time out! status: ${uploadStatus.get()}")
-                        uploadStatus.set(JOB_STATUS_FAILED)
-                    }
-                })
-            } else {
-                uploadStatus.set(JOB_STATUS_FAILED)
+                // 文件依然还不存在
+                if (! list.exists()) {
+                    Log.e("SettingsXposed","save error: /data/local/tmp/appenv.xposed.json not exist")
+                    return@async false
+                }
+
+                // 文件没有写的权限
+                if (!list.canWrite()) {
+                    Shell.SU.run("chmod 777 /data/local/tmp/AutoDarkBlackList.txt")
+                }
+                // 文件依然没有写的权限
+                if (!list.canWrite()) {
+                    Log.e("SettingsXposed","save error: /data/local/tmp/appenv.xposed.json can not write")
+                    return@async false
+                }
+                Files.write(BLOCK_LIST_PATH, mBlockSet)
+                BlockListReceiver.sendNewList(mContext, ArrayList(mBlockSet))
+            } catch (e: Exception) {
+                Timber.w(e, "Failed to write block list")
+                stopUpload(false)
             }
         }
-        return true
     }
 
-    fun onNewResponse(response: Int) {
-        Timber.d("onNewResponse: $response")
-        if (response == STATUS_LIST_LOAD_START) return
+    private fun onUpdateListResponse(intent: Intent) {
+        when (intent.getIntExtra(EXTRA_KEY_LIST_PROGRESS, LoadStatus.FAILED)) {
+            LoadStatus.SUCCEED -> stopUpload(true, mContext.getString(R.string.app_upload_success), this::refreshList)
 
-        // stop watcher now
+            LoadStatus.FAILED -> stopUpload(false)
+
+            LoadStatus.START -> {/* no-op */}
+        }
+    }
+
+    fun isUploading(): Boolean = uploadStatus.value == LoadStatus.START
+
+    private fun startUpload(timeOutMessage: String, message: String = mContext.getString(R.string.app_upload_start)) {
+        timer = Instant.now()
+        _uploadStatus.value = LoadStatus.START
+        updateMessage.set(message)
+
+        uploadTimeOutWatcher.set(viewModelScope.launch {
+            delay(MAX_UPLOAD_TIME_MILLIS)
+
+            if (uploadTimeOutWatcher.getAndSet(null) != null) {
+                Timber.e(timeOutMessage)
+                stopUpload(false)
+            }
+        })
+    }
+
+    private fun stopUpload(succeed: Boolean, msg: String = mContext.getString(R.string.app_upload_fail), doOnEnd: (() -> Unit)? = null) {
         val watcher = uploadTimeOutWatcher.getAndSet(null)
-        if (watcher?.isActive == true) watcher.cancel("Response received: $response")
+        if (watcher?.isActive == true) watcher.cancel()
 
         val cost = Duration.between(timer, Instant.now()).toMillis()
-        if (cost < 600L) SystemClock.sleep(1000L) // wait longer
-        Timber.i("onNewResponse: Response time cost: ${cost}ms")
-
-        uploadStatus.set(if (response == STATUS_LIST_LOAD_SUCCEED) JOB_STATUS_SUCCEED else JOB_STATUS_FAILED)
-
-        if (BuildConfig.DEBUG)
-            mContext.sendBroadcast(Intent(ActivityUpdateReceiver.ACTION_SERVER_PRINT_LIST))
-    }
-
-    fun isUploading(): Boolean = uploadStatus.get() == JOB_STATUS_PENDING
-
-    fun updateMenuFlag(menu: MenuItem, flagPath: Path, onResult: Consumer<Boolean>?) {
-        if (menu.isChecked.not() == Files.exists(flagPath)) return
-        menu.isEnabled = false
-
-        viewModelScope.launch {
-            val result = async(Dispatchers.IO) {
-                val rec = saveFlagAsFile(flagPath, !menu.isChecked)
-                delay(900L) // wait for animation
-                return@async rec
-            }.await()
-
-            if (result) {
-                menu.isChecked = !menu.isChecked
+        viewModelScope.launch(Dispatchers.Main) {
+            if (cost < 600L) delay(1000L) // wait longer
+            if (succeed) {
+                _uploadStatus.value = LoadStatus.SUCCEED
+                message.set(Summary(msg))
+            } else {
+                _uploadStatus.value = LoadStatus.FAILED
+                updateMessage.set(msg)
             }
-            menu.isEnabled = true
-            onResult?.accept(result)
+            doOnEnd?.invoke()
         }
     }
+
+    fun onShowSysAppSelected(selected: Boolean) {
+        if (sp.edit().putBoolean(KEY_SHOW_SYSTEM_APP, selected).commit()) {
+            refreshList(false)
+        }
+        if (selected) {
+            message.set(newSummary(R.string.app_hook_system_message))
+        }
+    }
+
+    fun onBlockFirstSelected(selected: Boolean) {
+        if (sp.edit().putBoolean(KEY_BLOCKED_FIRST, selected).commit()) {
+            refreshList(false)
+        }
+    }
+
+    fun onHookImeSelected(menu: MenuItem) {
+        val imeFlag: Path = Constant.BLOCK_LIST_INPUT_METHOD_CONFIG_PATH
+        if (menu.isChecked.not() == Files.exists(imeFlag)) return
+
+        startUpload("onRequestImeSwitch: time out waiting ImeHooker response.")
+        viewModelScope.launch(Dispatchers.IO) {
+            if (FileUtil.saveFlagAsFile(imeFlag, !menu.isChecked)) {
+                BlockListReceiver.requestSwitchIME(mContext)
+                menu.isChecked = !menu.isChecked
+            } else {
+                stopUpload(false)
+            }
+        }
+    }
+
+    private fun onImeSwitchResponse(intent: Intent) {
+        if (intent.getBooleanExtra(EXTRA_KEY_SWITCH_RESULT, false)) {
+            val messageStr = mContext.getString(R.string.app_hook_ime_restart, mContext.getString(R.string.inputmethod))
+            stopUpload(true, messageStr)
+
+            if (InputMethodReceiver.shouldHookIME()) {
+                viewModelScope.launch(Dispatchers.Main) {
+                    val cost = Duration.between(timer, Instant.now()).toMillis()
+                    if (cost < 600L) delay(1600L) // wait for toast
+                    dialog.set(ActivationScopeDialog.newInstance(true))
+                }
+            }
+        } else {
+            stopUpload(false)
+        }
+    }
+
+    private fun newSummary(@StringRes message: Int) = Summary(mContext.getString(message))
 
     override fun onCleared() {
         super.onCleared()

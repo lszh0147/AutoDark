@@ -11,6 +11,7 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.StringRes;
 
 import java.util.Objects;
 
@@ -20,6 +21,9 @@ public class PermissionLayout extends LinearLayout implements View.OnClickListen
 
     private ExpandableLayout mExpandableLayout;
     private CheckedImageView mExpandableButton;
+
+    private final TextView mTitle;
+    private final TextView mDescription;
 
     private boolean isExpanded;
 
@@ -32,27 +36,28 @@ public class PermissionLayout extends LinearLayout implements View.OnClickListen
     public PermissionLayout(@NonNull Context context, @Nullable AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
         final TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.PermissionLayout, defStyleAttr, 0);
+        setOrientation(VERTICAL);
 
-        LayoutInflater.from(context).inflate(R.layout.widget_permission, this, true);
+        View container = LayoutInflater.from(context).inflate(R.layout.widget_permission, this, true);
 
-        mIcon = findViewById(R.id.icon);
-        mIcon.setImageResource(a.getResourceId(R.styleable.PermissionLayout_src, android.R.drawable.ic_btn_speak_now));
+        mIcon = container.findViewById(R.id.icon);
+        mIcon.setImageResource(a.getResourceId(R.styleable.PermissionLayout_srcIcon, android.R.drawable.ic_btn_speak_now));
         if (a.hasValue(R.styleable.PermissionLayout_iconColor)) {
             mIcon.setColorName(Objects.requireNonNull(a.getString(R.styleable.PermissionLayout_iconColor)));
         }
 
-        TextView mTitle = findViewById(R.id.title);
+        mTitle = container.findViewById(R.id.title);
         if (a.hasValue(R.styleable.PermissionLayout_title))
             mTitle.setText(a.getText(R.styleable.PermissionLayout_title));
 
-        mExpandableButton = findViewById(R.id.button);
+        mExpandableButton = container.findViewById(R.id.button);
         if (a.getBoolean(R.styleable.PermissionLayout_expandable, true)) {
             mExpandableButton.setOnClickListener(this);
         } else {
             mExpandableButton.setVisibility(View.GONE);
         }
 
-        mExpandableLayout = findViewById(R.id.expandable);
+        mExpandableLayout = container.findViewById(R.id.expandable);
         if (a.hasValue(R.styleable.PermissionLayout_expandDescription)) {
             isExpanded = a.getBoolean(R.styleable.PermissionLayout_expandDescription, false);
             if (isExpanded ^ mExpandableLayout.isExpanded()) {
@@ -61,7 +66,7 @@ public class PermissionLayout extends LinearLayout implements View.OnClickListen
             }
         }
 
-        TextView mDescription = findViewById(R.id.description);
+        mDescription = container.findViewById(R.id.description);
         if (a.hasValue(R.styleable.PermissionLayout_description)) {
             mDescription.setText(a.getText(R.styleable.PermissionLayout_description));
         }
@@ -72,6 +77,30 @@ public class PermissionLayout extends LinearLayout implements View.OnClickListen
 
     public MaterialCircleIconView getTitleIcon() {
         return mIcon;
+    }
+
+    public void setTitle(@StringRes int title) {
+        mTitle.setText(title);
+    }
+
+    public void setTitle(String title) {
+        mTitle.setText(title);
+    }
+
+    public String getTitle() {
+        return mTitle.getText().toString();
+    }
+
+    public void setDescription(@StringRes int description) {
+         mDescription.setText(description);
+    }
+
+    public void setDescription(String description) {
+        mDescription.setText(description);
+    }
+
+    public String getDescription() {
+        return mDescription.getText().toString();
     }
 
     @Override

@@ -19,13 +19,12 @@ public final class Constant {
 
     public static final Path BLOCK_LIST_PATH = Paths.get(APP_DATA_DIR_LIST + File.separator + "AutoDarkBlackList.txt");
 
-    public static final Path BLOCK_LIST_SYSTEM_APP_CONFIG_PATH = Paths.get( APP_DATA_DIR + File.separator + "blockSystemApp");
+    public static final Path BLOCK_LIST_INPUT_METHOD_CONFIG_PATH = Paths.get( APP_DATA_DIR + File.separator + "hookIME");
 
-    public static final Path BLOCK_LIST_INPUT_METHOD_CONFIG_PATH = Paths.get( APP_DATA_DIR + File.separator + "blockIME");
+    public static final String PERMISSION_RECEIVE_DARK_BROADCAST = "me.ranko0p.permission.RECEIVE_DARK_BROADCAST";
+    public static final String PERMISSION_SEND_DARK_BROADCAST = "me.ranko0p.permission.SEND_DARK_BROADCAST";
 
     public static final String BRAND_ONE_PLUS = "OnePlus".toUpperCase();
-
-    public static final String PERMISSION_DARK_BROADCAST = "me.ranko0p.permission.RECEIVE_DARK_BROADCAST";
 
     public static final String SP_KEY_MASTER_SWITCH = "switch";
 
@@ -45,16 +44,10 @@ public final class Constant {
      **/
     public static final String SYSTEM_PROP_FORCE_DARK = "debug.hwui.force_dark";
 
-    public static final String SYSTEM_PROP_HOOK_SYSTEM_APPS = "debug.hwui.hook_sys_app";
-
     public static final String SYSTEM_PROP_HOOK_INPUT_METHOD = "debug.hwui.hook_ime";
 
     public static final String SYSTEM_SECURE_PROP_DARK_MODE = "ui_night_mode";
 
     public static final String COMMAND_SET_FORCE_DARK_ON = "setprop " + SYSTEM_PROP_FORCE_DARK + " true";
     public static final String COMMAND_SET_FORCE_DARK_OFF = "setprop " + SYSTEM_PROP_FORCE_DARK + " false";
-
-    public static final int JOB_STATUS_PENDING = 0x00C0;
-    public static final int JOB_STATUS_FAILED = JOB_STATUS_PENDING << 1;
-    public static final int JOB_STATUS_SUCCEED = JOB_STATUS_FAILED << 1;
 }

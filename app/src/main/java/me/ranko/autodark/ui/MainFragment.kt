@@ -3,8 +3,10 @@ package me.ranko.autodark.ui
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.ActivityOptions
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Pair
@@ -12,36 +14,60 @@ import android.view.View
 import androidx.databinding.Observable
 import androidx.databinding.ObservableField
 import androidx.fragment.app.FragmentActivity
-import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreference
-import com.google.android.material.snackbar.Snackbar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.ranko.autodark.AutoDarkApplication
+import me.ranko.autodark.Constant
 import me.ranko.autodark.R
-import me.ranko.autodark.core.DARK_JOB_TYPE
-import me.ranko.autodark.core.DarkModeSettings
+import me.ranko.autodark.receivers.BlockListReceiver
+import me.ranko.autodark.core.DarkPreferenceType
 import me.ranko.autodark.core.DarkPreferenceSupplier
 import me.ranko.autodark.ui.Preference.DarkDisplayPreference
+import me.ranko.autodark.ui.Preference.DarkSwitchPreference
 
 class MainFragment : PreferenceFragmentCompat(), DarkPreferenceSupplier {
+
+    private inner class XposedAliveReceiver(val mContext: Context): BroadcastReceiver() {
+        init {
+            mContext.registerReceiver(this,
+                    IntentFilter(BlockListReceiver.ACTION_ALIVE),
+                    Constant.PERMISSION_SEND_DARK_BROADCAST, null)
+            BlockListReceiver.sendIsAliveBroadcast(mContext)
+        }
+
+        override fun onReceive(context: Context?, intent: Intent) {
+            isXposed = true
+            xposedAliveTimer?.cancel()
+            xposedAliveTimer = null
+            if (xposedPreference != null) {
+                initXposedPreference(true)
+            }
+            mContext.unregisterReceiver(this)
+            xposedAliveReceiver = null
+        }
+    }
 
     private lateinit var startPreference: DarkDisplayPreference
     private lateinit var endPreference: DarkDisplayPreference
     private lateinit var autoPreference: SwitchPreference
 
-    /**
-     * [SwitchPreference] in non-xposed mode
-     * */
-    private lateinit var forceDarkPreference: Preference
+    private lateinit var forceDarkPreference: DarkSwitchPreference
+    private var xposedPreference: Preference? = null
 
     // may never get clicked
     private val aboutPreference by lazy(LazyThreadSafetyMode.NONE) { findPreference<Preference>(getString(R.string.pref_key_about))!! }
+
+    private var isXposed = false
+    private var xposedAliveTimer: Job? = null
+    private var xposedAliveReceiver: XposedAliveReceiver? = null
 
     companion object {
         val PERMISSIONS_LOCATION = arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
@@ -52,8 +78,10 @@ class MainFragment : PreferenceFragmentCompat(), DarkPreferenceSupplier {
         const val DARK_PREFERENCE_START = "dark_mode_time_start"
         const val DARK_PREFERENCE_END = "dark_mode_time_end"
         const val DARK_PREFERENCE_FORCE_ROOT = "dark_mode_force"
-        const val DARK_PREFERENCE_FORCE_XPOSED = "dark_mode_force_xposed"
         const val DARK_PREFERENCE_XPOSED = "dark_mode_xposed"
+        const val DARK_PREFERENCE_WALLPAPER = "dark_mode_wallpaper"
+
+        private const val XPOSED_ALIVE_TIME_OUT = 500L
     }
 
     /**
@@ -82,6 +110,7 @@ class MainFragment : PreferenceFragmentCompat(), DarkPreferenceSupplier {
         ).get(MainViewModel::class.java)
 
         lifecycle.addObserver(viewModel.darkSettings)
+        xposedAliveReceiver = XposedAliveReceiver(context)
     }
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
@@ -91,27 +120,34 @@ class MainFragment : PreferenceFragmentCompat(), DarkPreferenceSupplier {
         endPreference = darkTimeCategory.findPreference(DARK_PREFERENCE_END)!!
         autoPreference = darkTimeCategory.findPreference(DARK_PREFERENCE_AUTO)!!
 
-        val forceRootPreference = findPreference<SwitchPreference>(DARK_PREFERENCE_FORCE_ROOT)!!
-        val forceXposedPreference = findPreference<Preference>(DARK_PREFERENCE_FORCE_XPOSED)!!
-        val xposedPreference = findPreference<Preference>(DARK_PREFERENCE_XPOSED)!!
-
-        // init preference for xposed mode
-        val isXposed = viewModel.getApplication<AutoDarkApplication>().isXposed
-        forceDarkPreference = if (isXposed) forceXposedPreference else forceRootPreference
+        forceDarkPreference = findPreference(DARK_PREFERENCE_FORCE_ROOT)!!
+        xposedPreference = findPreference(DARK_PREFERENCE_XPOSED)!!
 
         if (isXposed) {
-            // drop switchable force-dark preference on xposed mode
-            forceRootPreference.parent!!.removePreference(forceRootPreference)
+            initXposedPreference(true)
+        } else {
+            xposedAliveTimer = lifecycleScope.launch(Dispatchers.Main) {
+                delay(XPOSED_ALIVE_TIME_OUT)
+                xposedAliveTimer = null
+                if (isXposed.not() && xposedPreference != null) {
+                    initXposedPreference(isXposed)
+                }
+            }
+        }
+    }
 
-            xposedPreference.title = getString(R.string.pref_block_title, "")
+    private fun initXposedPreference(isXposed: Boolean) {
+        xposedPreference!!.isEnabled = isXposed
+        forceDarkPreference.isEnabled = isXposed.not()
+        forceDarkPreference.isSwitchable = isXposed.not()
+
+        if (isXposed) {
+            xposedPreference!!.title = getString(R.string.pref_block_title, "")
             forceDarkPreference.title = getString(R.string.pref_force_dark, "")
             forceDarkPreference.summary = getString(R.string.pref_force_dark_summary, getString(R.string.pref_force_dark_summary_xposed))
         } else {
-            forceXposedPreference.parent!!.removePreference(forceXposedPreference)
-
-            xposedPreference.isEnabled = false
-            xposedPreference.title = getString(R.string.pref_block_title, " (Xposed)")
-            forceDarkPreference.title = getString(R.string.pref_force_dark, " (Root)")
+            xposedPreference!!.title = getString(R.string.pref_block_title, " (Xposed)")
+            forceDarkPreference.title = getString(R.string.pref_force_dark, if (AutoDarkApplication.isSui) " (Sui)" else " (Root)")
             forceDarkPreference.summary = getString(R.string.pref_force_dark_summary, getString(R.string.pref_force_dark_summary_root))
         }
     }
@@ -123,7 +159,7 @@ class MainFragment : PreferenceFragmentCompat(), DarkPreferenceSupplier {
 
         // observe auto mode job result
         // also init darkTimeCategory there
-        viewModel.autoMode.observe(viewLifecycleOwner, Observer<Boolean> { result ->
+        viewModel.autoMode.observe(viewLifecycleOwner, { result ->
             autoPreference.isChecked = result
             // hide custom time preferences when using auto mode
             startPreference.isVisible = !result
@@ -152,71 +188,46 @@ class MainFragment : PreferenceFragmentCompat(), DarkPreferenceSupplier {
         }
     }
 
-    private fun onForceDarkPreferenceClick() = lifecycleScope.launch {
-        (forceDarkPreference as SwitchPreference).run {
-            isEnabled = false
-            val succeed = DarkModeSettings.setForceDark(isChecked)
-            delay(600L)
-            if (!succeed) {
-                isChecked = !isChecked
-                viewModel.summaryText.set(viewModel.newSummary(R.string.root_check_failed))
-            }
-            isEnabled = true
-        }
-    }
-
     override fun onPreferenceTreeClick(preference: Preference): Boolean {
-        return when (preference.key) {
-            DARK_PREFERENCE_START -> false
+        when (preference.key) {
+            DARK_PREFERENCE_START, DARK_PREFERENCE_END -> return false
 
-            DARK_PREFERENCE_END -> false
+            DARK_PREFERENCE_WALLPAPER -> startActivity(Intent(requireActivity(), DarkWallpaperPickerActivity::class.java))
 
-            DARK_PREFERENCE_FORCE_ROOT -> { // handle result in observer
-                onForceDarkPreferenceClick()
-                true
-            }
+            DARK_PREFERENCE_FORCE_ROOT -> viewModel.onForceDarkClicked(preference as SwitchPreference, lifecycleScope)
 
-            DARK_PREFERENCE_AUTO -> {
-                onAutoPreferenceClick()
-                true
-            }
+            DARK_PREFERENCE_AUTO -> onAutoPreferenceClick()
 
             DARK_PREFERENCE_XPOSED -> {
                 val activity = requireActivity() as MainActivity
                 val appBarView = activity.findViewById<View>(R.id.appbar)
                 val fabView = activity.findViewById<View>(R.id.fab)
-                val appBarShared = Pair<View, String>(appBarView, appBarView.transitionName)
-                val fabShared = Pair<View, String>(fabView, fabView.transitionName)
+                val appBarShared = Pair(appBarView, appBarView.transitionName)
+                val fabShared = Pair(fabView, fabView.transitionName)
                 val intent = Intent(activity, BlockListActivity::class.java)
                 val options = ActivityOptions.makeSceneTransitionAnimation(activity, appBarShared, fabShared)
                 activity.startActivity(intent, options.toBundle())
-                true
             }
 
-            aboutPreference.key -> {
-                AboutFragment.replace(requireActivity().supportFragmentManager, R.id.container, "about")
-                true
-            }
+            aboutPreference.key -> AboutFragment.replace(parentFragmentManager, R.id.container, "about")
 
-            else -> super.onPreferenceTreeClick(preference)
+            else -> return super.onPreferenceTreeClick(preference)
         }
+        return true
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         if (requestCode == REQUEST_LOCATION_PERMISSION) {
-            if (grantResults[0] != PackageManager.PERMISSION_GRANTED) {
-                viewModel.summaryText.set(viewModel.newSummary(R.string.permission_failed))
-                autoPreference.isChecked = false
-            } else {
-                onAutoPreferenceClick()
-            }
+            viewModel.onLocationPermissionResult(grantResults[0] == PackageManager.PERMISSION_GRANTED)
+        } else {
+            super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         }
     }
 
     /**
      * Set availability to the whole DarkTimeCategory
      *
-     * @see     darkTimeCategory
+     * @see     MainFragment.onCreatePreferences
      * @see     Preference.setEnabled
      * */
     private fun setTimePreferenceEnabled(isEnabled: Boolean) {
@@ -231,7 +242,15 @@ class MainFragment : PreferenceFragmentCompat(), DarkPreferenceSupplier {
         autoPreference.onPreferenceClickListener = null
     }
 
-    override fun get(@DARK_JOB_TYPE type: String): DarkDisplayPreference {
+    override fun onDestroy() {
+        super.onDestroy()
+        xposedAliveReceiver?.apply {
+            mContext.unregisterReceiver(this)
+            xposedAliveReceiver = null
+        }
+    }
+
+    override fun get(@DarkPreferenceType type: String): DarkDisplayPreference {
         return if (type == DARK_PREFERENCE_START) startPreference else endPreference
     }
 

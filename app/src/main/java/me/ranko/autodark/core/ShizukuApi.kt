@@ -1,61 +1,140 @@
 package me.ranko.autodark.core
 
 import android.Manifest
+import android.app.Activity
+import android.app.IWallpaperManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.IPackageManager
 import android.content.pm.PackageManager
+import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import me.ranko.autodark.AutoDarkApplication
 import me.ranko.autodark.BuildConfig
-import moe.shizuku.api.*
+import me.ranko.autodark.Constant
+import me.ranko.autodark.R
+import rikka.shizuku.*
 import timber.log.Timber
 
 enum class ShizukuStatus {
-    NOT_INSTALL, DEAD, UNAUTHORIZED,
+    /* Shizuku only */
+    NOT_INSTALL,
+
     /**
-     * Indicates Shizuku is running and authorized
-     * operate on this status only
+     * Shizuku only
+     *
+     * @see ShizukuApi.buildShizukuDeadDialog
+     * */
+    DEAD,
+
+    /**
+     * Running but unauthorized, should send
+     * permission request after this status returned
+     *
+     * @see ShizukuProvider.PERMISSION
+     * @see ShizukuApi.requestPermission
+     * */
+    UNAUTHORIZED,
+
+    /**
+     * Indicates Shizuku or Sui is running and authorized.
+     * Perform operation on this status only
      * */
     AVAILABLE
 }
 
 object ShizukuApi {
+    private const val MANAGER_APPLICATION_ID = "moe.shizuku.privileged.api"
+
+    const val SUI_COLOR = "light_green"
+
+    const val REQUEST_CODE_SHIZUKU_PERMISSION = 7
+
+    private val mWallpaperManager: IWallpaperManager by lazy {
+        IWallpaperManager.Stub.asInterface(ShizukuBinderWrapper(SystemServiceHelper.getSystemService("wallpaper")))
+    }
 
     private val mManager:IPackageManager by lazy {
         IPackageManager.Stub.asInterface(ShizukuBinderWrapper(SystemServiceHelper.getSystemService("package")))
     }
 
-    suspend fun checkShizuku(context: Context): ShizukuStatus {
-        if (!ShizukuProvider.isShizukuInstalled(context)) return ShizukuStatus.NOT_INSTALL
+    fun checkShizuku(context: Context): ShizukuStatus {
+        if (!AutoDarkApplication.isSui && !ShizukuProvider.isShizukuInstalled(context)) {
+            return ShizukuStatus.NOT_INSTALL
+        }
 
-        if (!checkPermission(context)) return ShizukuStatus.UNAUTHORIZED
-
-        return withContext(Dispatchers.IO) {
-            if (ShizukuService.pingBinder()) {
-                // Shizuku v3 binder received
-                Timber.d("checkShizuku: binder received")
+        try {
+            val permission = if (!Shizuku.isPreV11() && Shizuku.getVersion() >= 11) {
+                Shizuku.checkSelfPermission()
+            } else {
+                ContextCompat.checkSelfPermission(context, ShizukuProvider.PERMISSION)
+            }
+            return if (permission == PackageManager.PERMISSION_GRANTED) {
                 ShizukuStatus.AVAILABLE
             } else {
-                // Shizuku v3 may not running, notify user
-                Timber.d("checkShizuku: Failed to pingBinder ")
-                ShizukuStatus.DEAD
+                ShizukuStatus.UNAUTHORIZED
             }
+        } catch (e: SecurityException) {
+            // service version below v11 and the app have't get the permission
+            return ShizukuStatus.UNAUTHORIZED
+        } catch (e: IllegalStateException) {
+            Timber.d(e,"Failed to pingBinder")
+            return ShizukuStatus.DEAD
+        } catch (e: Exception) {
+            Timber.i(e, "WTF")
+            return ShizukuStatus.DEAD
         }
     }
 
-    fun startManagerActivity(context: Context): Boolean {
-        val intent = context.packageManager.getLaunchIntentForPackage(ShizukuApiConstants.MANAGER_APPLICATION_ID) ?: return false
+    /**
+     * Register callbacks before request
+     *
+     * @see Shizuku.addRequestPermissionResultListener
+     * @see Shizuku.removeRequestPermissionResultListener
+     * */
+    fun requestPermission(activity: Activity) {
+        val isPreV11: Boolean  = try {
+            Shizuku.isPreV11() && Shizuku.getVersion() <= 10
+        } catch (e: SecurityException) {
+            true
+        }
+
+        if (isPreV11) {
+            activity.requestPermissions(arrayOf(ShizukuProvider.PERMISSION), REQUEST_CODE_SHIZUKU_PERMISSION)
+        } else {
+            Shizuku.requestPermission(REQUEST_CODE_SHIZUKU_PERMISSION)
+        }
+    }
+
+    private fun startManagerActivity(context: Context): Boolean {
+        val intent = context.packageManager.getLaunchIntentForPackage(MANAGER_APPLICATION_ID) ?: return false
         intent.addCategory(Intent.CATEGORY_LAUNCHER)
         ContextCompat.startActivity(context, intent, null)
         return true
     }
 
+    fun buildShizukuDeadDialog(activity: Activity): AlertDialog {
+        return AlertDialog.Builder(activity, R.style.SimpleDialogStyle)
+            .setMessage(R.string.shizuku_connect_failed)
+            .setNeutralButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.shizuku_open_manager) { _, _ -> startManagerActivity(activity) }
+            .create()
+    }
+
+    fun getIWallpaperManager(): IWallpaperManager = mWallpaperManager
+
+    fun setForceDark(enabled: Boolean): Boolean {
+        try {
+            ShizukuSystemProperties.set(Constant.SYSTEM_PROP_FORCE_DARK, enabled.toString())
+            return true
+        } catch (ignored: SecurityException) {
+        } catch (e: Exception) {
+            Timber.w(e)
+        }
+        return false
+    }
+
     fun grantWithShizuku() {
         mManager.grantRuntimePermission(BuildConfig.APPLICATION_ID, Manifest.permission.WRITE_SECURE_SETTINGS, android.os.Process.ROOT_UID)
     }
-
-    fun checkPermission(context: Context): Boolean =
-        ContextCompat.checkSelfPermission(context, ShizukuApiConstants.PERMISSION) == PackageManager.PERMISSION_GRANTED
 }

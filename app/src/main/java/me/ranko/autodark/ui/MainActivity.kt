@@ -1,9 +1,9 @@
 package me.ranko.autodark.ui
 
-import android.app.Activity
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.os.Bundle
+import android.view.View
 import android.util.Log
 import android.view.WindowManager
 import androidx.databinding.DataBindingUtil
@@ -18,13 +18,14 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.snackbar.Snackbar
 import eu.chainfire.libsuperuser.Shell
 import me.ranko.autodark.R
+import me.ranko.autodark.databinding.ActivityMainBinding
 import me.ranko.autodark.Utils.ViewUtil
 import me.ranko.autodark.databinding.MainActivityBinding
 import java.io.File
 
 class MainActivity : BaseListActivity(), FragmentManager.OnBackStackChangedListener {
     private lateinit var viewModel: MainViewModel
-    private lateinit var binding: MainActivityBinding
+    private lateinit var binding: ActivityMainBinding
 
     private var restrictedDialog: BottomSheetDialog? = null
 
@@ -36,12 +37,13 @@ class MainActivity : BaseListActivity(), FragmentManager.OnBackStackChangedListe
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        binding = DataBindingUtil.setContentView(this, R.layout.main_activity)
+        binding = DataBindingUtil.setContentView(this, R.layout.activity_main)
         binding.lifecycleOwner = this
         viewModel = ViewModelProvider(this, MainViewModel.Companion.Factory(application))
-            .get(MainViewModel::class.java)
+                .get(MainViewModel::class.java)
         binding.viewModel = viewModel
+
+        super.onCreate(savedInstanceState)
 
         viewModel.summaryText.addOnPropertyChangedCallback(summaryTextListener)
         viewModel.requirePermission.observe(this, Observer { required ->
@@ -51,9 +53,9 @@ class MainActivity : BaseListActivity(), FragmentManager.OnBackStackChangedListe
             viewModel.onRequirePermissionConsumed()
         })
 
-        if (ViewUtil.isLandscape(this)) {
+        if (isLandScape) {
             val collapsingToolbar =
-                binding.appbar.findViewById<CollapsingToolbarLayout>(R.id.collapsingToolbar)!!
+                    binding.appbar.findViewById<CollapsingToolbarLayout>(R.id.collapsingToolbar)!!
             val transparent = ColorStateList.valueOf(getColor(android.R.color.transparent))
             collapsingToolbar.setExpandedTitleTextColor(transparent)
             window.clearFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
@@ -111,29 +113,33 @@ class MainActivity : BaseListActivity(), FragmentManager.OnBackStackChangedListe
 
     private fun showSummary(summary: MainViewModel.Companion.Summary) {
         Snackbar.make(binding.coordinatorRoot, summary.message, Snackbar.LENGTH_LONG)
-            .setAction(summary.actionStr, summary.action)
-            .show()
+                .setAction(summary.actionStr, summary.action)
+                .show()
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == PermissionActivity.REQUEST_CODE_PERMISSION) {
-            if (resultCode == Activity.RESULT_OK)
-                showSummary(MainViewModel.Companion.Summary(getString(R.string.permission_granted)))
+            viewModel.onSecurePermissionResult(PermissionViewModel.checkSecurePermission(this))
         } else {
             super.onActivityResult(requestCode, resultCode, data)
         }
     }
 
     override fun onBackStackChanged() {
-        val frag =
-            supportFragmentManager.findFragmentById(R.id.container) as PreferenceFragmentCompat
+        val frag = supportFragmentManager.findFragmentById(R.id.container) as PreferenceFragmentCompat
         frag.listView.apply {
-            setPadding(paddingLeft, paddingTop, paddingRight, getNavBarHeight())
+            setPadding(paddingLeft, paddingTop, paddingRight, bottomNavHeight)
             if (clipToPadding) clipToPadding = false
         }
     }
 
-    override fun onNavBarHeightAvailable(height: Int) {
+    override fun getRootView(): View = binding.coordinatorRoot
+
+    override fun getListView(): View? = null
+
+    override fun getAppbar(): View? = null
+
+    override fun applyInsetsToListPadding(top: Int, bottom: Int) {
         onBackStackChanged()
     }
 

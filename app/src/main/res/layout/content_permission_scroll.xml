@@ -18,7 +18,6 @@
 
         <RelativeLayout
             style="@style/CardStyle"
-            android:layout_marginTop="24dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
 
@@ -60,11 +59,10 @@
             style="@style/CardStyle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
             app:description="@string/adb_description"
             app:expandDescription="true"
             app:iconColor="teal"
-            app:src="@drawable/ic_adb"
+            app:srcIcon="@drawable/ic_adb"
             app:title="@string/adb_title">
 
             <TextView
@@ -72,11 +70,11 @@
                 android:drawableStart="@drawable/ic_restart"
                 android:onClick="@{() -> viewModel.onAdbCheck()}"
                 android:text="@string/adb_check"
-                app:onButtonJobProgress="@{viewModel.adbJobStatus}"/>
+                app:hideOnLoading="@{viewModel.adbJobStatus}"/>
 
             <ProgressBar android:id="@+id/progressAdb"
                 style="@style/CardProgress"
-                app:onJobProgress="@{viewModel.adbJobStatus}"
+                app:showOnLoading="@{viewModel.adbJobStatus}"
                 tools:visibility="visible" />
 
             <TextView android:id="@+id/btnSend"
@@ -92,11 +90,10 @@
             style="@style/CardStyle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
             app:description="@string/root_description"
             app:expandDescription="true"
             app:iconColor="red"
-            app:src="@drawable/ic_root"
+            app:srcIcon="@drawable/ic_root"
             app:title="@string/root_title">
 
             <TextView android:id="@+id/btnRoot"
@@ -104,11 +101,11 @@
                 android:drawableStart="@drawable/ic_grant"
                 android:onClick="@{() -> viewModel.grantWithRoot()}"
                 android:text="@string/root_grant"
-                app:onButtonJobProgress="@{viewModel.sudoJobStatus}" />
+                app:hideOnLoading="@{viewModel.sudoJobStatus}" />
 
             <ProgressBar android:id="@+id/progressRoot"
                 style="@style/CardProgress"
-                app:onJobProgress="@{viewModel.sudoJobStatus}"
+                app:showOnLoading="@{viewModel.sudoJobStatus}"
                 tools:visibility="visible" />
         </me.ranko.autodark.ui.widget.PermissionLayout>
 

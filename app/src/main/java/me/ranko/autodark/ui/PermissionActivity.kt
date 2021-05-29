@@ -1,35 +1,31 @@
 package me.ranko.autodark.ui
 
 import android.app.Activity
-import android.content.DialogInterface
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.view.animation.AnimationUtils
-import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.databinding.DataBindingUtil
-import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.lifecycleScope
 import com.google.android.material.snackbar.Snackbar
-import kotlinx.android.synthetic.main.content_permission_scroll.view.*
-import kotlinx.coroutines.launch
+import me.ranko.autodark.AutoDarkApplication
 import me.ranko.autodark.R
 import me.ranko.autodark.Utils.CircularAnimationUtil
-import me.ranko.autodark.Utils.ViewUtil
 import me.ranko.autodark.core.ShizukuApi
+import me.ranko.autodark.core.ShizukuApi.REQUEST_CODE_SHIZUKU_PERMISSION
 import me.ranko.autodark.core.ShizukuStatus
-import me.ranko.autodark.databinding.PermissionActivityBinding
+import me.ranko.autodark.databinding.ActivityPermissionBinding
 import me.ranko.autodark.ui.widget.PermissionLayout
-import moe.shizuku.api.ShizukuApiConstants
-import moe.shizuku.api.ShizukuProvider
+import rikka.shizuku.Shizuku
+import rikka.shizuku.ShizukuProvider
 import timber.log.Timber
 
 class PermissionActivity : BaseListActivity(), ViewTreeObserver.OnGlobalLayoutListener {
-    private lateinit var binding: PermissionActivityBinding
+    private lateinit var binding: ActivityPermissionBinding
 
     /**
      * Coordinates that circle animate starts
@@ -40,6 +36,14 @@ class PermissionActivity : BaseListActivity(), ViewTreeObserver.OnGlobalLayoutLi
     private var coordinate: IntArray? = null
 
     private var shizukuDialog: AlertDialog? = null
+
+    private val shizukuListener = Shizuku.OnRequestPermissionResultListener { _, grantResult ->
+        if (grantResult == PackageManager.PERMISSION_GRANTED) {
+            viewModel.grantWithShizuku()
+        } else {
+            Snackbar.make(binding.coordRoot, R.string.permission_failed, Snackbar.LENGTH_SHORT).show()
+        }
+    }
 
     private val viewModel: PermissionViewModel by lazy(LazyThreadSafetyMode.NONE) {
         ViewModelProvider(this, PermissionViewModel.Companion.Factory(application)).get(
@@ -53,24 +57,22 @@ class PermissionActivity : BaseListActivity(), ViewTreeObserver.OnGlobalLayoutLi
             // replace default transition
             overridePendingTransition(R.anim.do_not_move, R.anim.do_not_move)
         }
-        super.onCreate(savedInstanceState)
-        if (!ViewUtil.isLandscape(this)) ViewUtil.setImmersiveNavBar(window)
 
-        binding = DataBindingUtil.setContentView(this, R.layout.permission_activity)
+        binding = DataBindingUtil.setContentView(this, R.layout.activity_permission)
         binding.lifecycleOwner = this
         binding.viewModel = viewModel
+        super.onCreate(savedInstanceState)
 
         initShizukuCard()
-        ViewUtil.setAppBarPadding(binding.appbarPermission)
+        Shizuku.addRequestPermissionResultListener(shizukuListener)
 
-        viewModel.permissionResult.observe(this, Observer<Boolean> { result ->
+        viewModel.permissionResult.observe(this, { result ->
             Timber.v("Access ${if (result) "granted" else "denied"}.")
             if (result) {
                 setResult(RESULT_OK)
                 finish()
             } else {
-                Snackbar.make(binding.coordRoot, R.string.permission_failed, Snackbar.LENGTH_SHORT)
-                    .show()
+                Snackbar.make(binding.coordRoot, R.string.permission_failed, Snackbar.LENGTH_SHORT).show()
             }
         })
 
@@ -84,29 +86,23 @@ class PermissionActivity : BaseListActivity(), ViewTreeObserver.OnGlobalLayoutLi
         }
     }
 
-    override fun onNavBarHeightAvailable(height: Int) {
-        with(binding.content.permissionRoot) {
-            setPadding(paddingLeft, paddingTop + height, paddingRight, paddingBottom + height)
-        }
-    }
+    override fun getRootView(): View = binding.coordRoot
+
+    override fun getListView(): View = binding.content.permissionRoot
+
+    override fun getAppbar(): View = binding.appbarPermission
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         if (requestCode == REQUEST_CODE_SHIZUKU_PERMISSION) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                onShizukuClick(null)
-            } else {
-                // denied
-                Snackbar.make(binding.coordRoot, R.string.permission_failed, Snackbar.LENGTH_SHORT)
-                    .show()
-            }
+            shizukuListener.onRequestPermissionResult(REQUEST_CODE_SHIZUKU_PERMISSION, grantResults[0])
         }
     }
 
     /**
      * Called on grant with Shizuku button clicked
      * */
-    fun onShizukuClick(v: View?) { lifecycleScope.launch {
-        when (ShizukuApi.checkShizuku(this@PermissionActivity)) {
+    fun onShizukuClick(@Suppress("UNUSED_PARAMETER")v: View?) {
+        when (ShizukuApi.checkShizuku(this)) {
 
             ShizukuStatus.DEAD -> showShizukuDeadDialog()
 
@@ -114,31 +110,17 @@ class PermissionActivity : BaseListActivity(), ViewTreeObserver.OnGlobalLayoutLi
                 Snackbar.make(binding.coordRoot, R.string.shizuku_not_install, Snackbar.LENGTH_SHORT).show()
             }
 
-            ShizukuStatus.UNAUTHORIZED -> {
-                requestPermissions(arrayOf(ShizukuApiConstants.PERMISSION), REQUEST_CODE_SHIZUKU_PERMISSION)
-            }
+            ShizukuStatus.UNAUTHORIZED -> ShizukuApi.requestPermission(this)
 
             ShizukuStatus.AVAILABLE -> viewModel.grantWithShizuku()
-        }}
+        }
     }
 
     private fun showShizukuDeadDialog() {
-        val onDialogClick = DialogInterface.OnClickListener { dialog, which ->
-            dialog.dismiss()
-            if (which == DialogInterface.BUTTON_NEUTRAL)
-                ShizukuApi.startManagerActivity(this@PermissionActivity)
+        if (shizukuDialog == null) {
+            shizukuDialog = ShizukuApi.buildShizukuDeadDialog(this)
         }
-
-        shizukuDialog = AlertDialog.Builder(this, R.style.SimpleDialogStyle)
-            .setView(android.R.layout.simple_list_item_1)
-            .setNeutralButton(R.string.shizuku_open_manager, onDialogClick)
-            .setPositiveButton(android.R.string.cancel, onDialogClick)
-            .show()
-        shizukuDialog?.findViewById<TextView>(android.R.id.text1)!!.apply {
-            val padding = resources.getDimensionPixelOffset(R.dimen.permission_padding_description_horizontal)
-            setText(R.string.shizuku_connect_failed)
-            setPadding(padding, padding, padding, padding)
-        }
+        shizukuDialog?.show()
     }
 
     override fun onGlobalLayout() {
@@ -150,12 +132,23 @@ class PermissionActivity : BaseListActivity(), ViewTreeObserver.OnGlobalLayoutLi
     }
 
     private fun initShizukuCard() {
-        val shizukuInstalled = ShizukuProvider.isShizukuInstalled(this)
-        val viewStub = (if(shizukuInstalled) binding.coordRoot.stubShizukuFirst else binding.coordRoot.stubShizukuLast)
-        val view = viewStub.inflate()
-        if (shizukuInstalled) {
-            val rotate = AnimationUtils.loadAnimation(view.context, R.anim.rotate_infinite)
-            (view as PermissionLayout).titleIcon.startAnimation(rotate)
+        val installed = AutoDarkApplication.isSui || ShizukuProvider.isShizukuInstalled(this)
+        val viewStub = if (installed) binding.content.stubShizukuFirst else binding.content.stubShizukuLast
+        with(viewStub.viewStub!!.inflate() as PermissionLayout) {
+            val title = if (AutoDarkApplication.isSui) {
+                titleIcon.colorName = ShizukuApi.SUI_COLOR
+                (binding.content.getRoot() as ViewGroup).removeView(binding.content.root)
+                R.string.sui_title
+            } else {
+                R.string.shizuku_title
+            }
+            setTitle(title)
+            description = getString(R.string.shizuku_description, getTitle())
+
+            if (installed) {
+                val rotate = AnimationUtils.loadAnimation(context, R.anim.rotate_infinite)
+                titleIcon.startAnimation(rotate)
+            }
         }
     }
 
@@ -165,13 +158,12 @@ class PermissionActivity : BaseListActivity(), ViewTreeObserver.OnGlobalLayoutLi
 
     override fun onDestroy() {
         shizukuDialog?.dismiss()
+        Shizuku.removeRequestPermissionResultListener(shizukuListener)
         super.onDestroy()
     }
 
     companion object {
         private const val ARG_COORDINATE: String = "ARG_COORDINATE"
-
-        private const val REQUEST_CODE_SHIZUKU_PERMISSION = 7
 
         const val REQUEST_CODE_PERMISSION = 2233
 

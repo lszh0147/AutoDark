@@ -5,21 +5,28 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.PackageManager;
 
-import me.ranko.autodark.Services.DarkModeTileService;
+import me.ranko.autodark.services.DarkModeTileService;
 import me.ranko.autodark.core.DebugTree;
 import me.ranko.autodark.core.ReleaseTree;
+import rikka.sui.Sui;
 import timber.log.Timber;
+import me.weishu.reflection.Reflection;
 
 public final class AutoDarkApplication extends Application {
 
-    @SuppressWarnings("FieldCanBeLocal")
-    private boolean isXposed = false;
+    public static final boolean isSui = Sui.init(BuildConfig.APPLICATION_ID);
+
+    @Override
+    protected void attachBaseContext(Context base) {
+        super.attachBaseContext(base);
+        Reflection.unseal(base);
+    }
 
     @Override
     public void onCreate() {
         super.onCreate();
         if (BuildConfig.DEBUG) {
-            Timber.plant(DebugTree.INSTANCE);
+            Timber.plant(new DebugTree());
         } else {
             Timber.plant(ReleaseTree.INSTANCE);
         }
@@ -35,14 +42,5 @@ public final class AutoDarkApplication extends Application {
         ComponentName component = new ComponentName(context, target);
         int status = context.getPackageManager().getComponentEnabledSetting(component);
         return status != PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
-    }
-
-    /**
-     * Hooked by {@link me.ranko.autodark.xposed.XCore}
-     *
-     * @return *True* Xposed enabled and works functional
-     */
-    public boolean isXposed() {
-        return isXposed;
     }
 }

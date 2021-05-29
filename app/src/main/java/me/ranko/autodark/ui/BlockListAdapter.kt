@@ -1,9 +1,8 @@
 package me.ranko.autodark.ui
 
-import android.app.Application
+import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.graphics.drawable.Animatable2
-import android.os.SystemClock
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -15,65 +14,143 @@ import android.widget.ImageView
 import android.widget.RelativeLayout
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import com.bumptech.glide.RequestManager
+import com.bumptech.glide.load.engine.DiskCacheStrategy
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions
 import me.ranko.autodark.R
 import me.ranko.autodark.Utils.CircularAnimationUtil
+import me.ranko.autodark.Utils.ViewUtil
+import me.ranko.autodark.model.UserApplicationInfo
 
-class BlockListAdapter(private val viewModel: BlockListViewModel) : RecyclerView.Adapter<BlockListAdapter.Companion.ViewHolder>(), View.OnClickListener {
-    private var data: List<ApplicationInfo> = EMPTY_APP_LIST
+class BlockListAdapter(context: Context,
+                       requestManager: RequestManager,
+                       private val listener: AppSelectListener) :
+    RecyclerView.Adapter<BlockListAdapter.BaseViewHolder<Any>>() {
 
-    private var isSearchMode = false
+    interface AppSelectListener {
+        fun onAppBlockStateChanged(packageName: String): Boolean
 
-    private val rippleAnimDuration =
-        viewModel.getApplication<Application>().resources.getInteger(android.R.integer.config_shortAnimTime)
-            .toLong()
+        fun isAppBlocked(packageName: String): Boolean
 
-    companion object {
-        @JvmStatic
-        val EMPTY_APP_LIST = ArrayList<ApplicationInfo>(0)
-
-        class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-            val rootRipple: View = view.findViewById(R.id.appRootBg)
-            val rootView: RelativeLayout = view.findViewById(R.id.appRoot)
-            val icon: ImageView = rootView.findViewById(R.id.icon)
-            val indicator: ImageView = rootView.findViewById(R.id.indicator)
-            val name: TextView = rootView.findViewById(R.id.name)
-            val id: TextView = rootView.findViewById(R.id.appID)
-        }
+        fun onEditItemClicked(packageName: String)
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder = ViewHolder(
-        LayoutInflater.from(parent.context).inflate(R.layout.item_block_list, parent, false)
-    )
+    private val packageManager = context.packageManager
 
-    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        val app = data[position]
-        applyBlockedMark(viewModel.isBlocked(app.packageName), holder, false)
-        holder.name.text = viewModel.getAppName(app)
-        holder.id.text = app.packageName
-        holder.rootView.setOnClickListener(this)
-        holder.rootView.tag = holder
+    private var data: List<Any> = emptyList()
 
-        if (!isSearchMode) {
-            val mAnimation = AnimationUtils.loadAnimation(viewModel.getApplication(), R.anim.item_shift_vertical)
-            holder.rootView.startAnimation(mAnimation)
+    private var isSearchMode = false
+    private var isRefreshing = false
+
+    private val rippleAnimDuration =
+        context.resources.getInteger(android.R.integer.config_shortAnimTime).toLong()
+
+    private val mRequest = requestManager
+            .asDrawable()
+            .diskCacheStrategy(DiskCacheStrategy.NONE)
+            .transition(DrawableTransitionOptions.withCrossFade())
+            .error(R.drawable.ic_attention)
+
+    abstract class BaseViewHolder<T>(view: View) : RecyclerView.ViewHolder(view) {
+        abstract fun bind(data: T, listener: AppSelectListener)
+
+        abstract fun recycle()
+    }
+
+    class MiniViewHolder(view: View, private val mListener: AppSelectListener) : BaseViewHolder<String>(view) {
+        private val id: TextView = view.findViewById(R.id.appID)
+
+        override fun bind(data: String, listener: AppSelectListener) {
+            ViewUtil.setStrikeFontStyle(id, listener.isAppBlocked(data).not())
+            id.text = data
+            itemView.setOnClickListener { mListener.onEditItemClicked(data) }
         }
 
-        holder.icon.tag = app.packageName
-        val iconDrawable = viewModel.getAppIcon(app)
-        val pkg = holder.id.text.toString()
-        if (pkg == app.packageName) {
-            holder.icon.setImageDrawable(iconDrawable)
+        override fun recycle() = itemView.setOnClickListener(null)
+    }
+
+    inner class AppViewHolder(view: View) : BaseViewHolder<ApplicationInfo>(view) {
+        private val rootRipple: View = view.findViewById(R.id.appRootBg)
+        private val rootView: RelativeLayout = view.findViewById(R.id.appRoot)
+        private val icon: ImageView = rootView.findViewById(R.id.icon)
+        private val indicator: ImageView = rootView.findViewById(R.id.indicator)
+        private val name: TextView = rootView.findViewById(R.id.name)
+        private val id: TextView = rootView.findViewById(R.id.appID)
+
+        override fun bind(data: ApplicationInfo, listener: AppSelectListener) {
+            applyBlockedMark(listener.isAppBlocked(data.packageName), false)
+            rootView.setOnClickListener {
+                if (!isRefreshing) {
+                    val isBlocked = listener.onAppBlockStateChanged(data.packageName)
+                    applyBlockedMark(isBlocked, true)
+                }
+            }
+            mRequest.load(data).into(icon)
+            id.text = data.packageName
+            name.text = if (data !is UserApplicationInfo) {
+                data.loadLabel(packageManager)
+            } else {
+                id.context.getString(R.string.app_badged_label, data.loadLabel(packageManager), data.userId)
+            }
+
             if (!isSearchMode) {
-                val alpha = AlphaAnimation(0.0f, 1.0f)
-                alpha.duration = 300L
-                holder.icon.startAnimation(alpha)
+                val mAnimation = AnimationUtils.loadAnimation(rootView.context, R.anim.item_shift_vertical)
+                rootView.startAnimation(mAnimation)
             }
         }
+
+        private fun applyBlockedMark(isBlocked: Boolean, animate: Boolean) {
+            val visibility = if (isBlocked) {
+                if (animate) {
+                    (indicator.drawable as Animatable2).start()
+                    val animator = CircularAnimationUtil.buildAnimator(rootRipple, rootRipple, 256.0f)
+                    animator.interpolator = AccelerateInterpolator()
+                    animator.duration = rippleAnimDuration
+                    animator.start()
+                }
+                View.VISIBLE
+            } else {
+                if (animate) {
+                    val alphaAnim = AlphaAnimation(0.6f, 0.0f)
+                    alphaAnim.duration = rippleAnimDuration
+                    alphaAnim.interpolator = AccelerateDecelerateInterpolator()
+                    rootRipple.startAnimation(alphaAnim)
+                }
+                View.INVISIBLE
+            }
+
+            rootRipple.visibility = visibility
+            indicator.visibility = visibility
+        }
+
+        override fun recycle() = rootView.setOnClickListener(null)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): BaseViewHolder<Any> {
+        return if (viewType == 0) {
+            AppViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_block_list, parent, false))
+        } else {
+            MiniViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_block_list_minimum, parent, false), listener)
+        } as BaseViewHolder<Any>
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        setData(emptyList())
+    }
+
+    override fun onViewDetachedFromWindow(holder: BaseViewHolder<Any>) {
+    }
+
+    override fun onBindViewHolder(holder: BaseViewHolder<Any>, position: Int) {
+        holder.bind(data[position], listener)
     }
 
     override fun getItemCount() = data.size
 
-    fun setData(data: List<ApplicationInfo>) {
+    override fun getItemViewType(position: Int): Int = if (data[position] is ApplicationInfo) 0 else 1
+
+    fun setData(data: List<Any>) {
         this.data = data
         notifyDataSetChanged()
     }
@@ -82,35 +159,7 @@ class BlockListAdapter(private val viewModel: BlockListViewModel) : RecyclerView
         this.isSearchMode = isSearchMode
     }
 
-    override fun onClick(v: View) {
-        if (viewModel.isRefreshing.value == true) return
-        val holder = v.tag as ViewHolder
-        val position = holder.adapterPosition
-        val isBlocked = viewModel.onAppSelected(data[position])
-        applyBlockedMark(isBlocked, holder)
-    }
-
-    private fun applyBlockedMark(isBlocked: Boolean, holder: ViewHolder, animate: Boolean = true) {
-        val visibility = if (isBlocked) {
-            if (animate) {
-                (holder.indicator.drawable as Animatable2).start()
-                val animator = CircularAnimationUtil.buildAnimator(holder.rootRipple, holder.rootRipple, 256.0f)
-                animator.interpolator = AccelerateInterpolator()
-                animator.duration = rippleAnimDuration
-                animator.start()
-            }
-            View.VISIBLE
-        } else {
-            if (animate) {
-                val alphaAnim = AlphaAnimation(0.6f, 0.0f)
-                alphaAnim.duration = rippleAnimDuration
-                alphaAnim.interpolator = AccelerateDecelerateInterpolator()
-                holder.rootRipple.startAnimation(alphaAnim)
-                SystemClock.sleep(160L)
-            }
-            View.INVISIBLE
-        }
-        holder.rootRipple.visibility = visibility
-        holder.indicator.visibility = visibility
+    fun setRefreshing(isRefreshing: Boolean) {
+        this.isRefreshing = isRefreshing
     }
 }

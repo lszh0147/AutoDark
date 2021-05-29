@@ -2,15 +2,14 @@ package me.ranko.autodark.Utils
 
 import android.content.Context
 import android.content.res.Configuration
-import android.content.res.Resources
 import android.graphics.Paint
-import android.view.View
+import android.text.SpannableString
+import android.text.style.ForegroundColorSpan
+import android.view.MenuItem
 import android.view.Window
 import android.view.WindowManager
 import android.widget.TextView
-import com.google.android.material.appbar.AppBarLayout
-import me.ranko.autodark.ui.PermissionViewModel
-import timber.log.Timber
+import androidx.annotation.ColorInt
 
 /**
  * Simple view util
@@ -28,24 +27,6 @@ object ViewUtil {
         )
     }
 
-    fun setAppBarPadding(v: AppBarLayout) {
-        val statusBar = getStatusBarHeight(v.resources)
-        v.setPadding(v.paddingLeft, statusBar, v.paddingRight, v.paddingBottom)
-    }
-
-    /**
-     * @return  System status bar height
-     *
-     * @link    https://stackoverflow.com/questions/3407256/height-of-status-bar-in-android/47125610#47125610
-     * */
-    fun getStatusBarHeight(res: Resources): Int {
-        val resourceId = res.getIdentifier("status_bar_height", "dimen", "android")
-        if (resourceId > 0) {
-            return res.getDimensionPixelSize(resourceId)
-        }
-        return 1
-    }
-
     /**
      * Applies a strike-through font style on a TextView
      *
@@ -61,5 +42,18 @@ object ViewUtil {
         } else {
             textView.paintFlags.and(Paint.STRIKE_THRU_TEXT_FLAG.inv())
         }
+    }
+
+    fun setMenuItemTitleColor(item: MenuItem, @ColorInt color: Int, title: CharSequence = item.title) {
+        val spannable = SpannableString(title)
+        spannable.setSpan(ForegroundColorSpan(color), 0, title.length, 0)
+        item.title = spannable
+    }
+
+    fun getAttrColor(context: Context, attr: Int): Int {
+        val ta = context.obtainStyledAttributes(intArrayOf(attr))
+        val colorAccent = ta.getColor(0, 0)
+        ta.recycle()
+        return colorAccent
     }
 }

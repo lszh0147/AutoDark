@@ -2,13 +2,13 @@ package me.ranko.autodark.ui
 
 import android.graphics.drawable.Animatable2
 import android.view.View
-import android.widget.ProgressBar
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.databinding.BindingAdapter
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.marcdonald.simplelicensedisplay.SimpleLicenseDisplay
-import me.ranko.autodark.Constant
 import me.ranko.autodark.R
+import me.ranko.autodark.core.LoadStatus
 
 @BindingAdapter("setActiveImg")
 fun setActiveImg(fab: FloatingActionButton, state: DarkSwitch) {
@@ -39,14 +39,22 @@ fun setActiveImg(fab: FloatingActionButton, state: DarkSwitch) {
     }
 }
 
-@BindingAdapter("onButtonJobProgress")
-fun onButtonJobProgress(v: TextView, process: Int) {
-    v.visibility = if (process == Constant.JOB_STATUS_PENDING) View.GONE else View.VISIBLE
+@BindingAdapter("hideOnLoading")
+fun hideOnLoading(v: View, @LoadStatus status: Int) {
+    v.visibility = if (status == LoadStatus.START) View.GONE else View.VISIBLE
 }
 
-@BindingAdapter("onJobProgress")
-fun onJobProgress(v: ProgressBar, process: Int) {
-    v.visibility = if (process == Constant.JOB_STATUS_PENDING) View.VISIBLE else View.GONE
+@BindingAdapter("showOnLoading")
+fun showOnLoading(v: View, @LoadStatus status: Int) {
+    v.visibility = if (status == LoadStatus.START) View.VISIBLE else View.GONE
+}
+
+@BindingAdapter("showImageOnError")
+fun showImageOnError(v: ImageView, @LoadStatus status: Int) {
+    v.visibility = if (status == LoadStatus.FAILED) View.VISIBLE else View.GONE
+    if (status == LoadStatus.FAILED) {
+        v.setImageResource(R.drawable.kyaru)
+    }
 }
 
 @BindingAdapter("bindLicense")

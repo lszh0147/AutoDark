@@ -23,25 +23,28 @@
             android:persistent="false"
             android:summary="@string/pref_time_auto_summary"
             android:title="@string/pref_time_auto" />
+
+        <Preference
+            android:dependency="dark_mode_time_start"
+            android:key="dark_mode_wallpaper"
+            android:summary="@string/pref_dark_wallpaper_summary"
+            android:title="@string/pref_dark_wallpaper_title" />
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/pref_category_dev">
-        <SwitchPreference
+        <me.ranko.autodark.ui.Preference.DarkSwitchPreference
             android:defaultValue="false"
             android:key="dark_mode_force"
             android:shouldDisableView="true"
-            tools:title="@string/pref_force_dark"
-            tools:summary="@string/pref_force_dark_summary" />
-
-        <Preference
-            android:key="dark_mode_force_xposed"
-            tools:title="@string/pref_force_dark"
-            tools:summary="@string/pref_force_dark_summary" />
+            android:enabled="false"
+            android:summary="@string/pref_force_dark_summary"
+            tools:title="@string/pref_force_dark" />
 
         <Preference
             android:icon="@drawable/ic_extension"
             android:key="dark_mode_xposed"
             android:summary="@string/pref_block_summary"
+            android:enabled="false"
             tools:title="@string/pref_block_title" />
     </PreferenceCategory>
 
