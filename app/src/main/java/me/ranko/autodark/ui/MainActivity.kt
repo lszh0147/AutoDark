@@ -20,7 +20,7 @@ import eu.chainfire.libsuperuser.Shell
 import me.ranko.autodark.R
 import me.ranko.autodark.databinding.ActivityMainBinding
 import me.ranko.autodark.Utils.ViewUtil
-import me.ranko.autodark.databinding.MainActivityBinding
+//import me.ranko.autodark.databinding.MainActivityBinding
 import java.io.File
 
 class MainActivity : BaseListActivity(), FragmentManager.OnBackStackChangedListener {

@@ -349,7 +349,7 @@ class BlockListViewModel(application: Application) : AndroidViewModel(applicatio
             try {
                 if (!Shell.SU.available()) {
                     Log.e("SettingsXposed","no Root")
-                    return@async false
+//                    return
                 }
                 val list:File = File("/data/local/tmp/AutoDarkBlackList.txt")
                 if (! list.exists()) {
@@ -360,7 +360,7 @@ class BlockListViewModel(application: Application) : AndroidViewModel(applicatio
                 // 文件依然还不存在
                 if (! list.exists()) {
                     Log.e("SettingsXposed","save error: /data/local/tmp/appenv.xposed.json not exist")
-                    return@async false
+//                    return
                 }
 
                 // 文件没有写的权限
@@ -370,7 +370,7 @@ class BlockListViewModel(application: Application) : AndroidViewModel(applicatio
                 // 文件依然没有写的权限
                 if (!list.canWrite()) {
                     Log.e("SettingsXposed","save error: /data/local/tmp/appenv.xposed.json can not write")
-                    return@async false
+//                    return
                 }
                 Files.write(BLOCK_LIST_PATH, mBlockSet)
                 BlockListReceiver.sendNewList(mContext, ArrayList(mBlockSet))
